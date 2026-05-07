@@ -82,7 +82,7 @@ jobs:
       # =========================
       - name: Start Docker Compose Stack
         run: |
-          docker compose up -d --no-build --pull never
+          docker compose up -d 
           echo "Stack started"
 
       # =========================
