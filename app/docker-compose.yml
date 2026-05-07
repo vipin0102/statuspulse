@@ -5,6 +5,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+    image: statuspulse:ci
     container_name: statuspulse-app
     ports:
       - "${APP_PORT}:8000"
