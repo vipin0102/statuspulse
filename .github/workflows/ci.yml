@@ -44,7 +44,8 @@ jobs:
         run: ruff check .
 
       # =========================
-      # Hadolint
+      # Hadolint — Scan Dockerfile
+      # Working-directory is ./app so path is relative to repo root
       # =========================
       - name: Lint Dockerfile
         uses: hadolint/hadolint-action@v3.1.0
@@ -53,63 +54,88 @@ jobs:
           ignore: DL3018,DL3059,DL3042,DL3013
 
       # =========================
-      # Docker Build
+      # Build Docker Image
+      # Build first so compose can reuse the cached image
       # =========================
       - name: Build Docker Image
-        run: docker build -t statuspulse:test .
+        run: docker build -t statuspulse:ci .
 
       # =========================
-      # Environment File
+      # Create .env from example
       # =========================
       - name: Create .env
         run: cp .env.example .env
 
       # =========================
-      # Start Stack
+      # Start Full Stack via Docker Compose
+      # Pull=never so compose uses the image we just built above
       # =========================
       - name: Start Docker Compose Stack
-        run: docker compose up -d
+        run: |
+          docker compose up -d --no-build
+          echo "Stack started"
 
       # =========================
-      # Wait for Health
+      # Wait for App to be Healthy
+      # 30 attempts × 5 s = up to 150 s timeout
+      # On failure, dump all container logs before exit
       # =========================
       - name: Wait for App Health
         run: |
-          echo "Waiting for application..."
+          echo "Waiting for application to become healthy..."
 
-          for i in {1..30}; do
-            if curl -f http://localhost:8000/health; then
-              echo "Application healthy"
+          for i in $(seq 1 30); do
+            RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8000/health || true)
+            if [ "$RESPONSE" = "200" ]; then
+              echo "Application is healthy (attempt $i)"
               exit 0
             fi
-
+            echo "Attempt $i/30 — HTTP $RESPONSE — retrying in 5s..."
             sleep 5
           done
 
-          echo "Application failed health check"
+          echo "Application failed to become healthy within 150s"
+          echo ""
+          echo "=== Docker Compose Logs ==="
           docker compose logs
           exit 1
 
       # =========================
-      # Run Integration Tests
+      # Run Integration Tests Against Live Stack
+      # pipefail ensures a non-zero exit from the script
+      # propagates even when piped into tee
       # =========================
       - name: Run Integration Tests
         run: |
+          set -o pipefail
           chmod +x tests/test_integration.sh
-          ./tests/test_integration.sh | tee integration-test-results.txt
+          ./tests/test_integration.sh 2>&1 | tee integration-test-results.txt
 
       # =========================
-      # Upload Test Artifact
+      # Dump Compose Logs on Failure
+      # Helps diagnose why integration tests failed
+      # =========================
+      - name: Dump Compose Logs on Failure
+        if: failure()
+        run: docker compose logs
+
+      # =========================
+      # Upload Test Results as Artifact
+      # Always upload — even when tests fail — so results are inspectable
+      # Path is relative to repo root (not working-directory)
       # =========================
       - name: Upload Test Results
         uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: integration-test-results
           path: app/integration-test-results.txt
+          if-no-files-found: warn
 
       # =========================
-      # Cleanup
+      # Tear Down Stack
+      # Always runs — removes containers, networks, and volumes
       # =========================
       - name: Tear Down Stack
         if: always()
-        run: docker compose down -v
+        run: docker compose down -v --remove-orphans

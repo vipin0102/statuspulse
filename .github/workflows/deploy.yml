@@ -1,13 +1,19 @@
 name: Deploy Pipeline
 
 on:
-  push:
+  workflow_run:
+    workflows: ["CI Pipeline"]
+    types:
+      - completed
     branches:
       - main
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
+
+    # Only run if CI passed
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
 
     defaults:
       run:
@@ -24,6 +30,8 @@ jobs:
       # =========================
       - name: Checkout Repository
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
 
       # =========================
       # Connect to Tailscale
@@ -31,8 +39,7 @@ jobs:
       - name: Connect to Tailscale
         uses: tailscale/github-action@v2
         with:
-          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
-          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+          authkey: ${{ secrets.TS_AUTHKEY }}
 
       # =========================
       # Login to GHCR
@@ -46,15 +53,17 @@ jobs:
       # =========================
       - name: Build Docker Image
         run: |
-          docker build -t ghcr.io/${{ github.repository }}/statuspulse:${{ github.sha }} .
-          docker tag ghcr.io/${{ github.repository }}/statuspulse:${{ github.sha }} ghcr.io/${{ github.repository }}/statuspulse:latest
+          docker build \
+            -t ghcr.io/${{ github.repository }}/statuspulse:${{ github.event.workflow_run.head_sha }} \
+            -t ghcr.io/${{ github.repository }}/statuspulse:latest \
+            .
 
       # =========================
       # Push Docker Images
       # =========================
       - name: Push Docker Images
         run: |
-          docker push ghcr.io/${{ github.repository }}/statuspulse:${{ github.sha }}
+          docker push ghcr.io/${{ github.repository }}/statuspulse:${{ github.event.workflow_run.head_sha }}
           docker push ghcr.io/${{ github.repository }}/statuspulse:latest
 
       # =========================
@@ -84,55 +93,87 @@ jobs:
       # Deploy Application
       # =========================
       - name: Deploy Application
+        env:
+          DEPLOY_SHA: ${{ github.event.workflow_run.head_sha }}
+          REPO: ${{ github.repository }}
+          GHCR_PAT: ${{ secrets.GHCR_PAT }}
+          GH_ACTOR: ${{ github.actor }}
         run: |
-          ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} << EOF
+          ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} bash -s << ENDSSH
 
           set -e
 
-          echo "Starting deployment..."
+          echo "======================================"
+          echo "Starting deployment of ${DEPLOY_SHA}"
+          echo "======================================"
 
-          docker login ghcr.io -u ${{ github.actor }} -p ${{ secrets.GHCR_PAT }}
+          # Login to GHCR on server
+          echo "${GHCR_PAT}" | docker login ghcr.io -u ${GH_ACTOR} --password-stdin
 
-          PREVIOUS_IMAGE=\$(docker inspect statuspulse-app --format='{{.Config.Image}}' || true)
+          # Save current image for rollback
+          PREVIOUS_IMAGE=\$(docker inspect statuspulse-app --format='{{.Config.Image}}' 2>/dev/null || true)
+          echo "Previous image: \${PREVIOUS_IMAGE:-none}"
 
-          docker pull ghcr.io/${{ github.repository }}/statuspulse:${{ github.sha }}
+          # Pull new image
+          echo "Pulling new image..."
+          docker pull ghcr.io/${REPO}/statuspulse:${DEPLOY_SHA}
 
-          docker stop statuspulse-app || true
-          docker rm statuspulse-app || true
+          # Stop and remove old container
+          docker stop statuspulse-app 2>/dev/null || true
+          docker rm   statuspulse-app 2>/dev/null || true
 
+          # Run new container
           docker run -d \
             --name statuspulse-app \
             -p 8000:8000 \
-            --env-file .env \
+            --env-file ~/statuspulse/.env \
             --restart unless-stopped \
-            ghcr.io/${{ github.repository }}/statuspulse:${{ github.sha }}
+            ghcr.io/${REPO}/statuspulse:${DEPLOY_SHA}
 
           echo "Waiting for application startup..."
           sleep 15
 
+          # Health check with retries
           echo "Running health check..."
+          HEALTHY=false
+          for i in \$(seq 1 6); do
+            if curl -sf http://localhost:8000/health | grep -q '"healthy"'; then
+              HEALTHY=true
+              break
+            fi
+            echo "Attempt \$i/6 failed, retrying in 5s..."
+            sleep 5
+          done
 
-          if curl -f http://localhost:8000/health; then
-            echo "Deployment successful"
+          if [ "\$HEALTHY" = "true" ]; then
+            echo "======================================"
+            echo "Health check passed — deployment done"
+            echo "======================================"
           else
-            echo "Deployment failed. Rolling back..."
+            echo "======================================"
+            echo "Health check failed — rolling back..."
+            echo "======================================"
 
-            docker stop statuspulse-app || true
-            docker rm statuspulse-app || true
+            docker stop statuspulse-app 2>/dev/null || true
+            docker rm   statuspulse-app 2>/dev/null || true
 
-            if [ ! -z "\$PREVIOUS_IMAGE" ]; then
+            if [ -n "\$PREVIOUS_IMAGE" ]; then
+              echo "Restoring previous image: \$PREVIOUS_IMAGE"
               docker run -d \
                 --name statuspulse-app \
                 -p 8000:8000 \
-                --env-file .env \
+                --env-file ~/statuspulse/.env \
                 --restart unless-stopped \
-                \$PREVIOUS_IMAGE
+                "\$PREVIOUS_IMAGE"
+              echo "Rollback complete"
+            else
+              echo "No previous image to roll back to"
             fi
 
             exit 1
           fi
 
-          EOF
+          ENDSSH
 
       # =========================
       # Success Notification
@@ -142,11 +183,21 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
+            const sha = '${{ github.event.workflow_run.head_sha }}';
+            const shortSha = sha.substring(0, 7);
             github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: 1,
-              body: "✅ Deployment successful for commit: ${{ github.sha }}"
+              body: [
+                '## ✅ Deployment Successful',
+                '',
+                `**Commit:** \`${shortSha}\``,
+                `**Full SHA:** \`${sha}\``,
+                `**Image:** \`ghcr.io/${{ github.repository }}/statuspulse:${shortSha}\``,
+                `**Triggered by:** @${{ github.actor }}`,
+                `**Time:** ${new Date().toUTCString()}`,
+              ].join('\n')
             })
 
       # =========================
@@ -157,9 +208,20 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
+            const sha = '${{ github.event.workflow_run.head_sha }}';
+            const shortSha = sha.substring(0, 7);
             github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: 1,
-              body: "❌ Deployment failed for commit: ${{ github.sha }}"
+              body: [
+                '## ❌ Deployment Failed — Rollback Triggered',
+                '',
+                `**Commit:** \`${shortSha}\``,
+                `**Full SHA:** \`${sha}\``,
+                `**Triggered by:** @${{ github.actor }}`,
+                `**Time:** ${new Date().toUTCString()}`,
+                '',
+                '> The previous image has been restored. Please check the [workflow logs](${{ github.server_url }}/${{ github.repository }}/actions) for details.',
+              ].join('\n')
             })
