@@ -1,7 +1,7 @@
 #!/bin/bash
 
 set -e
-
+cp .env.example .env
 make build
 make up
 

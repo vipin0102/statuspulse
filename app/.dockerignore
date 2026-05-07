@@ -28,3 +28,4 @@ tests/
 dist/
 build/
 deploy.sh
+commands.txt

@@ -1,0 +1,3 @@
+sudo tailscale up
+tailscale ip -4
+sudo tailscale down
