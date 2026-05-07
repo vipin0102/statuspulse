@@ -12,7 +12,6 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
 
-    # Only run if CI passed
     if: ${{ github.event.workflow_run.conclusion == 'success' }}
 
     defaults:
@@ -90,13 +89,19 @@ jobs:
           ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} "echo SSH CONNECTION SUCCESSFUL"
 
       # =========================
-      # Write .env onto server
-      # Creates the file fresh from GitHub secrets — no hardcoded path needed
+      # Copy deployment files to server
+      # Copies docker-compose.yml + .env so the server has everything it needs
       # =========================
-      - name: Write .env to Server
+      - name: Copy Files to Server
         run: |
           ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} "mkdir -p ~/statuspulse"
-          ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} "cat > ~/statuspulse/.env" << 'EOF'
+
+          # Copy docker-compose.yml
+          scp docker-compose.yml \
+            ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}:~/statuspulse/docker-compose.yml
+
+          # Write .env from GitHub secrets
+          ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} bash -c "cat > ~/statuspulse/.env" << 'EOF'
           APP_PORT=8000
           DB_HOST=postgres
           DB_PORT=5432
@@ -109,7 +114,8 @@ jobs:
           EOF
 
       # =========================
-      # Deploy Application
+      # Deploy Application via Docker Compose
+      # Uses compose on the server so postgres + redis start alongside the app
       # =========================
       - name: Deploy Application
         env:
@@ -117,8 +123,6 @@ jobs:
           REPO: ${{ github.repository }}
           GHCR_PAT: ${{ secrets.GHCR_PAT }}
           GH_ACTOR: ${{ github.actor }}
-          SERVER_USER: ${{ secrets.SERVER_USER }}
-          SERVER_HOST: ${{ secrets.SERVER_HOST }}
         run: |
           ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} bash -s \
             "$DEPLOY_SHA" "$REPO" "$GHCR_PAT" "$GH_ACTOR" << 'ENDSSH'
@@ -129,79 +133,98 @@ jobs:
           REPO="$2"
           GHCR_PAT="$3"
           GH_ACTOR="$4"
-          ENV_FILE="$HOME/statuspulse/.env"
+          WORKDIR="$HOME/statuspulse"
 
           echo "======================================"
-          echo "Starting deployment of ${DEPLOY_SHA}"
+          echo "Deploying SHA: ${DEPLOY_SHA}"
           echo "======================================"
 
-          # Verify .env exists before doing anything
-          if [ ! -f "$ENV_FILE" ]; then
-            echo "ERROR: .env file not found at $ENV_FILE"
+          cd "$WORKDIR"
+
+          # Verify .env exists
+          if [ ! -f ".env" ]; then
+            echo "ERROR: .env not found at $WORKDIR/.env"
             exit 1
           fi
 
-          # Login to GHCR on server
+          # Login to GHCR
           echo "${GHCR_PAT}" | docker login ghcr.io -u "${GH_ACTOR}" --password-stdin
 
-          # Save current image for rollback
-          PREVIOUS_IMAGE=$(docker inspect statuspulse-app --format='{{.Config.Image}}' 2>/dev/null || true)
+          # Save previous image tag for rollback
+          PREVIOUS_IMAGE=$(docker inspect statuspulse-app \
+            --format='{{.Config.Image}}' 2>/dev/null || true)
           echo "Previous image: ${PREVIOUS_IMAGE:-none}"
 
           # Pull new image
           echo "Pulling new image..."
           docker pull "ghcr.io/${REPO}/statuspulse:${DEPLOY_SHA}"
 
-          # Stop and remove old container
-          docker stop statuspulse-app 2>/dev/null || true
-          docker rm   statuspulse-app 2>/dev/null || true
+          # Update IMAGE_TAG in env so compose uses the exact SHA image
+          export IMAGE_TAG="${DEPLOY_SHA}"
 
-          # Run new container
-          docker run -d \
-            --name statuspulse-app \
-            -p 8000:8000 \
-            --env-file "$ENV_FILE" \
-            --restart unless-stopped \
-            "ghcr.io/${REPO}/statuspulse:${DEPLOY_SHA}"
+          # Bring up full stack (app + postgres + redis) via compose
+          # --no-build: use the image we just pulled
+          # --pull never: don't try to pull postgres/redis again, they're already cached
+          echo "Starting stack via Docker Compose..."
+          APP_IMAGE="ghcr.io/${REPO}/statuspulse:${DEPLOY_SHA}" \
+            docker compose \
+              --env-file .env \
+              -f docker-compose.yml \
+              up -d --remove-orphans
 
-          echo "Waiting for application startup..."
-          sleep 15
+          echo "Waiting for application startup (30s)..."
+          sleep 30
 
-          # Health check with retries
+          # Health check with retries — 8 attempts x 10s = 80s window
           echo "Running health check..."
           HEALTHY=false
-          for i in $(seq 1 6); do
-            if curl -sf http://localhost:8000/health | grep -q '"healthy"'; then
-              HEALTHY=true
-              break
+          for i in $(seq 1 8); do
+            HTTP=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8000/health || true)
+            if [ "$HTTP" = "200" ]; then
+              BODY=$(curl -s http://localhost:8000/health)
+              echo "Health response: $BODY"
+              if echo "$BODY" | grep -q '"healthy"'; then
+                HEALTHY=true
+                break
+              fi
             fi
-            echo "Attempt $i/6 failed, retrying in 5s..."
-            sleep 5
+            echo "Attempt $i/8 — HTTP $HTTP — retrying in 10s..."
+            sleep 10
           done
 
           if [ "$HEALTHY" = "true" ]; then
             echo "======================================"
-            echo "Health check passed — deployment done"
+            echo "Deployment successful!"
             echo "======================================"
+            # Clean up old unused images to save disk space
+            docker image prune -f || true
           else
             echo "======================================"
             echo "Health check failed — rolling back..."
             echo "======================================"
 
-            docker stop statuspulse-app 2>/dev/null || true
-            docker rm   statuspulse-app 2>/dev/null || true
+            # Print container logs for diagnosis
+            echo "=== App container logs ==="
+            docker logs statuspulse-app --tail 50 || true
+            echo "=== Postgres logs ==="
+            docker logs statuspulse-postgres --tail 20 || true
+            echo "=== Redis logs ==="
+            docker logs statuspulse-redis --tail 20 || true
+
+            # Roll back: stop current stack and restart previous image
+            docker compose -f docker-compose.yml down || true
 
             if [ -n "$PREVIOUS_IMAGE" ]; then
               echo "Restoring previous image: $PREVIOUS_IMAGE"
-              docker run -d \
-                --name statuspulse-app \
-                -p 8000:8000 \
-                --env-file "$ENV_FILE" \
-                --restart unless-stopped \
-                "$PREVIOUS_IMAGE"
+              # Patch compose to use the old image and bring stack back up
+              APP_IMAGE="$PREVIOUS_IMAGE" \
+                docker compose \
+                  --env-file .env \
+                  -f docker-compose.yml \
+                  up -d --remove-orphans
               echo "Rollback complete"
             else
-              echo "No previous image to roll back to"
+              echo "No previous image — stack left down"
             fi
 
             exit 1
