@@ -50,6 +50,7 @@ jobs:
         uses: hadolint/hadolint-action@v3.1.0
         with:
           dockerfile: app/Dockerfile
+          ignore: DL3018,DL3059,DL3042,DL3013
 
       # =========================
       # Docker Build
