@@ -100,6 +100,11 @@ jobs:
           scp docker-compose.yml \
             ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}:~/statuspulse/docker-compose.yml
 
+          # Copy Caddyfile — must sit next to docker-compose.yml on the server
+          # because docker-compose.yml mounts it as ./Caddyfile
+          scp ../caddy/Caddyfile \
+            ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}:~/statuspulse/Caddyfile
+
           # Write .env from GitHub secrets
           ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} bash -c "cat > ~/statuspulse/.env" << 'EOF'
           APP_PORT=8000

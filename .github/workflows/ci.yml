@@ -45,7 +45,7 @@ jobs:
 
       # =========================
       # Hadolint — Scan Dockerfile
-      # Working-directory is ./app so path is relative to repo root
+      # Path is relative to repo root (not working-directory)
       # =========================
       - name: Lint Dockerfile
         uses: hadolint/hadolint-action@v3.1.0
@@ -55,7 +55,8 @@ jobs:
 
       # =========================
       # Build Docker Image
-      # Build first so compose can reuse the cached image
+      # Tag MUST match the `image:` field in docker-compose.yml
+      # so compose finds it locally via --no-build --pull never
       # =========================
       - name: Build Docker Image
         run: docker build -t statuspulse:ci .
@@ -67,18 +68,28 @@ jobs:
         run: cp .env.example .env
 
       # =========================
+      # Copy Caddyfile into app/ so docker-compose can bind-mount it
+      # Repo layout:  caddy/Caddyfile  (root level)
+      # Compose runs from ./app, mounts ./Caddyfile → needs app/Caddyfile
+      # =========================
+      - name: Copy Caddyfile
+        run: cp ../caddy/Caddyfile ./Caddyfile
+
+      # =========================
       # Start Full Stack via Docker Compose
-      # Pull=never so compose uses the image we just built above
+      # --no-build  → use the image we just built, never rebuild
+      # --pull never → don't try to pull statuspulse:ci from a registry
       # =========================
       - name: Start Docker Compose Stack
         run: |
-          docker compose up -d --no-build
+          docker compose up -d --no-build --pull never
           echo "Stack started"
 
       # =========================
       # Wait for App to be Healthy
-      # 30 attempts × 5 s = up to 150 s timeout
-      # On failure, dump all container logs before exit
+      # 30 attempts x 5s = up to 150s timeout
+      # Prints HTTP code on each retry for easy diagnosis
+      # Dumps logs if it never becomes healthy
       # =========================
       - name: Wait for App Health
         run: |
@@ -102,7 +113,7 @@ jobs:
 
       # =========================
       # Run Integration Tests Against Live Stack
-      # pipefail ensures a non-zero exit from the script
+      # set -o pipefail ensures non-zero exit from the script
       # propagates even when piped into tee
       # =========================
       - name: Run Integration Tests
@@ -113,7 +124,7 @@ jobs:
 
       # =========================
       # Dump Compose Logs on Failure
-      # Helps diagnose why integration tests failed
+      # Only runs when a step has failed — helps diagnose test failures
       # =========================
       - name: Dump Compose Logs on Failure
         if: failure()
@@ -121,7 +132,7 @@ jobs:
 
       # =========================
       # Upload Test Results as Artifact
-      # Always upload — even when tests fail — so results are inspectable
+      # Always upload — even on failure — so results are inspectable
       # Path is relative to repo root (not working-directory)
       # =========================
       - name: Upload Test Results
@@ -134,7 +145,7 @@ jobs:
 
       # =========================
       # Tear Down Stack
-      # Always runs — removes containers, networks, and volumes
+      # Always runs — cleans containers, networks, and volumes
       # =========================
       - name: Tear Down Stack
         if: always()
