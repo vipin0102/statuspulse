@@ -12,7 +12,14 @@ jobs:
   ci:
     runs-on: ubuntu-latest
 
+    defaults:
+      run:
+        working-directory: ./app
+
     steps:
+      # =========================
+      # Checkout Repository
+      # =========================
       - name: Checkout Repository
         uses: actions/checkout@v4
 
@@ -24,9 +31,15 @@ jobs:
         with:
           python-version: "3.11"
 
+      # =========================
+      # Install Ruff
+      # =========================
       - name: Install Ruff
         run: pip install ruff
 
+      # =========================
+      # Lint Python Code
+      # =========================
       - name: Lint Python Code
         run: ruff check .
 
@@ -36,7 +49,7 @@ jobs:
       - name: Lint Dockerfile
         uses: hadolint/hadolint-action@v3.1.0
         with:
-          dockerfile: Dockerfile
+          dockerfile: app/Dockerfile
 
       # =========================
       # Docker Build
@@ -91,7 +104,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: integration-test-results
-          path: integration-test-results.txt
+          path: app/integration-test-results.txt
 
       # =========================
       # Cleanup
