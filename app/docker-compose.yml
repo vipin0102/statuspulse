@@ -80,6 +80,11 @@ services:
     restart: unless-stopped
     volumes:
       - uptime_kuma_data:/app/data
+    environment:
+      - UPTIME_KUMA_PORT=3001
+      - UPTIME_KUMA_BASE_PATH=/status
+    expose:
+      - "3001"
     networks:
       - statuspulse-network  
 
