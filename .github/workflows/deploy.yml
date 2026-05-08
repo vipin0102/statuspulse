@@ -121,9 +121,9 @@ jobs:
           echo "=== Server deployment structure ==="
           ls -la ~/statuspulse/app/
           ls -la ~/statuspulse/caddy/
-          [ -f ~/statuspulse/app/docker-compose.yml ] || { echo "ERROR: docker-compose.yml missing"; exit 1; }
+          [ -f ~/statuspulse/docker-compose.yml ] || { echo "ERROR: docker-compose.yml missing"; exit 1; }
           [ -f ~/statuspulse/caddy/Caddyfile ]        || { echo "ERROR: Caddyfile missing";          exit 1; }
-          [ -f ~/statuspulse/app/.env ]               || { echo "ERROR: .env missing";               exit 1; }
+          [ -f ~/statuspulse/.env ]               || { echo "ERROR: .env missing";               exit 1; }
           echo "OK: all required files present"
           VERIFY
 
@@ -149,7 +149,7 @@ jobs:
           GH_ACTOR="$4"
 
           # Compose must run from app/ so ../caddy/Caddyfile resolves correctly
-          WORKDIR="$HOME/statuspulse/app"
+          WORKDIR="$HOME/statuspulse"
 
           echo "======================================"
           echo "Deploying SHA: ${DEPLOY_SHA}"

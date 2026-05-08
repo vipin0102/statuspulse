@@ -50,7 +50,7 @@ jobs:
       - name: Lint Dockerfile
         uses: hadolint/hadolint-action@v3.1.0
         with:
-          dockerfile: app/Dockerfile
+          dockerfile: Dockerfile
           ignore: DL3018,DL3059,DL3042,DL3013
 
       # =========================
