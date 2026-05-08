@@ -4,23 +4,14 @@
 
 https://av-lap-pg0441tk.taildb17d2.ts.net {
 
-    # ── Uptime Kuma ──────────────────────────────────────────
-    # Must use handle_path to strip the /status prefix before
-    # forwarding to Uptime Kuma, because Kuma listens at /
-    # internally even when BASE_PATH=/status is set.
-    # header_up Host preserves the original host for Kuma.
-    # transport http / versions enables websocket upgrades
-    # needed for the live dashboard.
+    # Uptime Kuma v2 with UPTIME_KUMA_BASE_PATH=/status
+    # generates all asset URLs as /status/assets/... so we
+    # forward /status* as-is — no prefix stripping needed
     handle /status* {
-        reverse_proxy uptime-kuma:3001 {
-            header_up Host {host}
-            transport http {
-                versions h1 h2
-            }
-        }
+        reverse_proxy uptime-kuma:3001
     }
 
-    # ── StatusPulse app ──────────────────────────────────────
+    # StatusPulse app
     handle {
         reverse_proxy app:8000
     }
