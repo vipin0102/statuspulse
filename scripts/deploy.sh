@@ -2,17 +2,6 @@
 
 # =============================================================
 # StatusPulse — Production Deployment Script
-#
-# Features:
-#   ✅ Pull latest image from GHCR
-#   ✅ Zero-downtime deployment
-#   ✅ Health check validation
-#   ✅ Automatic rollback
-#   ✅ Timestamp logging
-#   ✅ Idempotent execution
-#   ✅ Safe repeated execution
-#   ✅ Docker Compose based
-#   ✅ Production ready
 # =============================================================
 
 set -euo pipefail
@@ -135,6 +124,8 @@ rollback() {
 
         cd "$PROJECT_DIR"
 
+        docker compose down --remove-orphans || true
+
         docker compose up -d --remove-orphans
 
         log "Rollback completed successfully"
@@ -177,6 +168,8 @@ preflight() {
     }
 
     mkdir -p "$(dirname "$LOG_FILE")"
+
+    touch "$LOG_FILE"
 
     log "Compose file: $COMPOSE_FILE"
     log "Environment:  $ENV_FILE"
@@ -222,7 +215,19 @@ main() {
     log "Image pull completed"
 
     # ---------------------------------------------------------
-    # Zero-downtime deployment
+    # Stop old containers
+    # ---------------------------------------------------------
+
+    log_section "STOPPING OLD CONTAINERS"
+
+    docker compose down --remove-orphans || true
+
+    docker container prune -f || true
+
+    log "Old containers removed"
+
+    # ---------------------------------------------------------
+    # Start updated containers
     # ---------------------------------------------------------
 
     log_section "STARTING UPDATED CONTAINERS"
