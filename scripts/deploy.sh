@@ -124,7 +124,12 @@ rollback() {
 
         cd "$PROJECT_DIR"
 
-        docker compose down --remove-orphans || true
+        docker rm -f \
+            statuspulse-app \
+            statuspulse-postgres \
+            statuspulse-redis \
+            statuspulse-caddy \
+            2>/dev/null || true
 
         docker compose up -d --remove-orphans
 
@@ -220,7 +225,12 @@ main() {
 
     log_section "STOPPING OLD CONTAINERS"
 
-    docker compose down --remove-orphans || true
+    docker rm -f \
+        statuspulse-app \
+        statuspulse-postgres \
+        statuspulse-redis \
+        statuspulse-caddy \
+        2>/dev/null || true
 
     docker container prune -f || true
 
