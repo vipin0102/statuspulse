@@ -2,6 +2,9 @@ version: "3.9"
 
 services:
   app:
+#    build:
+#      context: .
+#      dockerfile: Dockerfile
     image: ${APP_IMAGE:-statuspulse:ci}
     container_name: statuspulse-app
     ports:
