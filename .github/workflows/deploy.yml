@@ -108,7 +108,7 @@ jobs:
             ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}:~/statuspulse/app/docker-compose.yml
 
           # Copy Caddyfile (runner: ../caddy/Caddyfile = repo-root/caddy/Caddyfile)
-          scp ../caddy/Caddyfile \
+          scp caddy/Caddyfile \
             ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}:~/statuspulse/caddy/Caddyfile
 
           # Write .env into app/ using printf to avoid heredoc YAML conflicts
