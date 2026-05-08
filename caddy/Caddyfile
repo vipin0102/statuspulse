@@ -16,14 +16,19 @@ https://av-lap-pg0441tk.taildb17d2.ts.net {
     # UPTIME KUMA
     # =====================================================
 
-    handle /status* {
-        uri strip_prefix /status
+    handle_path /status/* {
         reverse_proxy uptime-kuma:3001
+    }
+
+    handle /status {
+        redir /status/
     }
 
     # =====================================================
     # STATUSPULSE APP
     # =====================================================
 
-    reverse_proxy app:8000
+    handle {
+        reverse_proxy app:8000
+    }
 }
