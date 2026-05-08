@@ -94,20 +94,22 @@ jobs:
       #   ~/statuspulse/app/docker-compose.yml
       #   ~/statuspulse/caddy/Caddyfile
       #
-      # Compose runs from ~/statuspulse/app/ so ../caddy/Caddyfile
-      # correctly resolves to ~/statuspulse/caddy/Caddyfile — same as local dev.
+      # FIX: rm -rf ~/statuspulse/caddy/Caddyfile before scp to ensure
+      # it is always a file, never a directory (prevents OCI mount error).
       # =========================
       - name: Copy Files to Server
         run: |
           # Create directory structure mirroring the repo
+          # Then defensively remove Caddyfile in case it exists as a directory
+          # from a previous broken deploy (Docker mount fails if it's a dir)
           ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} \
             "mkdir -p ~/statuspulse/app ~/statuspulse/caddy && rm -rf ~/statuspulse/caddy/Caddyfile"
 
-          # Copy docker-compose.yml (runner working-dir = ./app)
+          # Copy docker-compose.yml
           scp docker-compose.yml \
             ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}:~/statuspulse/app/docker-compose.yml
 
-          # Copy Caddyfile (runner: ../caddy/Caddyfile = repo-root/caddy/Caddyfile)
+          # Copy Caddyfile
           scp ./caddy/Caddyfile \
             ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}:~/statuspulse/caddy/Caddyfile
 
@@ -115,15 +117,15 @@ jobs:
           ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} \
             "printf 'APP_PORT=8000\nDB_HOST=postgres\nDB_PORT=5432\nDB_NAME=${{ secrets.DB_NAME }}\nDB_USER=${{ secrets.DB_USER }}\nDB_PASSWORD=${{ secrets.DB_PASSWORD }}\nREDIS_HOST=redis\nREDIS_PORT=6379\nREDIS_PASSWORD=${{ secrets.REDIS_PASSWORD }}\n' > ~/statuspulse/app/.env"
 
-          # Verify structure
+          # Verify structure — paths corrected to match actual deploy layout
           ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} bash -s << 'VERIFY'
           set -e
           echo "=== Server deployment structure ==="
           ls -la ~/statuspulse/app/
           ls -la ~/statuspulse/caddy/
-          [ -f ~/statuspulse/docker-compose.yml ] || { echo "ERROR: docker-compose.yml missing"; exit 1; }
+          [ -f ~/statuspulse/app/docker-compose.yml ] || { echo "ERROR: docker-compose.yml missing"; exit 1; }
           [ -f ~/statuspulse/caddy/Caddyfile ]        || { echo "ERROR: Caddyfile missing";          exit 1; }
-          [ -f ~/statuspulse/.env ]               || { echo "ERROR: .env missing";               exit 1; }
+          [ -f ~/statuspulse/app/.env ]               || { echo "ERROR: .env missing";               exit 1; }
           echo "OK: all required files present"
           VERIFY
 
@@ -148,7 +150,6 @@ jobs:
           GHCR_PAT="$3"
           GH_ACTOR="$4"
 
-          # Compose must run from app/ so ./caddy/Caddyfile resolves correctly
           WORKDIR="$HOME/statuspulse"
 
           echo "======================================"
@@ -158,9 +159,9 @@ jobs:
           cd "$WORKDIR"
 
           # Guard — all files must exist before touching Docker
-          [ -f ".env" ]              || { echo "ERROR: .env missing";              exit 1; }
-          [ -f "docker-compose.yml" ] || { echo "ERROR: docker-compose.yml missing"; exit 1; }
-          [ -f "./caddy/Caddyfile" ] || { echo "ERROR: ./caddy/Caddyfile missing"; exit 1; }
+          [ -f "app/.env" ]              || { echo "ERROR: app/.env missing";              exit 1; }
+          [ -f "app/docker-compose.yml" ] || { echo "ERROR: app/docker-compose.yml missing"; exit 1; }
+          [ -f "caddy/Caddyfile" ]       || { echo "ERROR: caddy/Caddyfile missing"; exit 1; }
           echo "All required files verified"
 
           # Login to GHCR
@@ -182,13 +183,12 @@ jobs:
           docker pull "ghcr.io/${REPO}/statuspulse:${DEPLOY_SHA}"
 
           # Bring up full stack with the new image
-          # --project-name ensures consistent naming regardless of working dir
           echo "Starting stack via Docker Compose..."
           APP_IMAGE="ghcr.io/${REPO}/statuspulse:${DEPLOY_SHA}" \
             docker compose \
               --project-name statuspulse \
-              --env-file .env \
-              -f docker-compose.yml \
+              --env-file app/.env \
+              -f app/docker-compose.yml \
               up -d --no-build --pull never --remove-orphans
 
           echo "Waiting for application startup (30s)..."
@@ -226,15 +226,15 @@ jobs:
             echo "=== Redis logs ==="    && docker logs statuspulse-redis    --tail 20 || true
             echo "=== Caddy logs ==="    && docker logs statuspulse-caddy    --tail 20 || true
 
-            docker compose --project-name statuspulse -f docker-compose.yml down || true
+            docker compose --project-name statuspulse -f app/docker-compose.yml down || true
 
             if [ -n "$PREVIOUS_IMAGE" ]; then
               echo "Restoring previous image: $PREVIOUS_IMAGE"
               APP_IMAGE="$PREVIOUS_IMAGE" \
                 docker compose \
                   --project-name statuspulse \
-                  --env-file .env \
-                  -f docker-compose.yml \
+                  --env-file app/.env \
+                  -f app/docker-compose.yml \
                   up -d --no-build --pull never --remove-orphans
               echo "Rollback complete"
             else
@@ -296,33 +296,3 @@ jobs:
                 '> The previous image has been restored. Please check the [workflow logs](${{ github.server_url }}/${{ github.repository }}/actions) for details.',
               ].join('\n')
             })
-
-#      # =========================
-#      # Setup and Run Standalone Deploy Script
-#      # =========================
-#      - name: Setup and Run deploy.sh
-#        run: |
-
-#          # Create scripts directory on server
-#          ssh -p 2222 ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} "
-#            mkdir -p ~/statuspulse/scripts
-#          "
-
-#          # Copy deploy.sh to server
-#          scp -P 2222 \
-#            ../scripts/deploy.sh \
-#            ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}:~/statuspulse/scripts/deploy.sh
-
-#          # Make executable + create log file
-#          ssh -p 2222 ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} "
-#            chmod +x ~/statuspulse/scripts/deploy.sh && \
-#            sudo touch /var/log/statuspulse-deploy.log && \
-#            sudo chmod 777 /var/log/statuspulse-deploy.log
-#          "
-
-#          # Run standalone deployment script
-#          ssh -p 2222 ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} "
-#            cd ~/statuspulse && \
-#            APP_IMAGE=ghcr.io/${{ github.repository }}/statuspulse:${{ github.event.workflow_run.head_sha }} \
-#            ./scripts/deploy.sh
-#          "
