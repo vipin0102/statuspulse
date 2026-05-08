@@ -4,7 +4,13 @@
 
 https://av-lap-pg0441tk.taildb17d2.ts.net {
 
-    reverse_proxy app:8000
+    handle /status* {
+        reverse_proxy uptime-kuma:3001
+    }
+
+    handle {
+        reverse_proxy app:8000
+    }
 
     encode gzip
 
