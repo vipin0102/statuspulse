@@ -160,7 +160,7 @@ jobs:
           # Guard — all files must exist before touching Docker
           [ -f ".env" ]              || { echo "ERROR: .env missing";              exit 1; }
           [ -f "docker-compose.yml" ] || { echo "ERROR: docker-compose.yml missing"; exit 1; }
-          [ -f "../caddy/Caddyfile" ] || { echo "ERROR: ../caddy/Caddyfile missing"; exit 1; }
+          [ -f "./caddy/Caddyfile" ] || { echo "ERROR: ./caddy/Caddyfile missing"; exit 1; }
           echo "All required files verified"
 
           # Login to GHCR
