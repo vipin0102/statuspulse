@@ -4,7 +4,7 @@
 
 https://av-lap-pg0441tk.taildb17d2.ts.net {
 
-    handle_path /status/* {
+    handle /status* {
         reverse_proxy uptime-kuma:3001
     }
 
