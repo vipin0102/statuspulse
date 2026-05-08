@@ -297,32 +297,32 @@ jobs:
               ].join('\n')
             })
 
-      # =========================
-      # Setup and Run Standalone Deploy Script
-      # =========================
-      - name: Setup and Run deploy.sh
-        run: |
+#      # =========================
+#      # Setup and Run Standalone Deploy Script
+#      # =========================
+#      - name: Setup and Run deploy.sh
+#        run: |
 
-          # Create scripts directory on server
-          ssh -p 2222 ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} "
-            mkdir -p ~/statuspulse/scripts
-          "
+#          # Create scripts directory on server
+#          ssh -p 2222 ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} "
+#            mkdir -p ~/statuspulse/scripts
+#          "
 
-          # Copy deploy.sh to server
-          scp -P 2222 \
-            ../scripts/deploy.sh \
-            ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}:~/statuspulse/scripts/deploy.sh
+#          # Copy deploy.sh to server
+#          scp -P 2222 \
+#            ../scripts/deploy.sh \
+#            ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}:~/statuspulse/scripts/deploy.sh
 
-          # Make executable + create log file
-          ssh -p 2222 ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} "
-            chmod +x ~/statuspulse/scripts/deploy.sh && \
-            sudo touch /var/log/statuspulse-deploy.log && \
-            sudo chmod 777 /var/log/statuspulse-deploy.log
-          "
+#          # Make executable + create log file
+#          ssh -p 2222 ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} "
+#            chmod +x ~/statuspulse/scripts/deploy.sh && \
+#            sudo touch /var/log/statuspulse-deploy.log && \
+#            sudo chmod 777 /var/log/statuspulse-deploy.log
+#          "
 
-          # Run standalone deployment script
-          ssh -p 2222 ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} "
-            cd ~/statuspulse && \
-            APP_IMAGE=ghcr.io/${{ github.repository }}/statuspulse:${{ github.event.workflow_run.head_sha }} \
-            ./scripts/deploy.sh
-          "
+#          # Run standalone deployment script
+#          ssh -p 2222 ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} "
+#            cd ~/statuspulse && \
+#            APP_IMAGE=ghcr.io/${{ github.repository }}/statuspulse:${{ github.event.workflow_run.head_sha }} \
+#            ./scripts/deploy.sh
+#          "
