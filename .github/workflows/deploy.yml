@@ -99,19 +99,20 @@ jobs:
       # =========================
       - name: Copy Files to Server
         run: |
-          # Create directory structure mirroring the repo
+          # Create the directory structure Docker Compose expects
+          # Everything should be under ~/statuspulse/app/
           ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} \
-            "mkdir -p ~/statuspulse/app ~/statuspulse/caddy"
+            "mkdir -p ~/statuspulse/app/caddy"
 
-          # Copy docker-compose.yml (runner working-dir = ./app)
+          # Copy docker-compose.yml
           scp docker-compose.yml \
             ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}:~/statuspulse/app/docker-compose.yml
 
-          # Copy Caddyfile (runner: ../caddy/Caddyfile = repo-root/caddy/Caddyfile)
+          # FIX: Copy Caddyfile into the app/caddy folder
           scp caddy/Caddyfile \
-            ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}:~/statuspulse/caddy/Caddyfile
+            ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}:~/statuspulse/app/caddy/Caddyfile
 
-          # Write .env into app/ using printf to avoid heredoc YAML conflicts
+          # Write .env into app/
           ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} \
             "printf 'APP_PORT=8000\nDB_HOST=postgres\nDB_PORT=5432\nDB_NAME=${{ secrets.DB_NAME }}\nDB_USER=${{ secrets.DB_USER }}\nDB_PASSWORD=${{ secrets.DB_PASSWORD }}\nREDIS_HOST=redis\nREDIS_PORT=6379\nREDIS_PASSWORD=${{ secrets.REDIS_PASSWORD }}\n' > ~/statuspulse/app/.env"
 
@@ -120,9 +121,9 @@ jobs:
           set -e
           echo "=== Server deployment structure ==="
           ls -la ~/statuspulse/app/
-          ls -la ~/statuspulse/caddy/
+          ls -la ~/statuspulse/app/caddy/
           [ -f ~/statuspulse/app/docker-compose.yml ] || { echo "ERROR: docker-compose.yml missing"; exit 1; }
-          [ -f ~/statuspulse/caddy/Caddyfile ]        || { echo "ERROR: Caddyfile missing";          exit 1; }
+          [ -f ~/statuspulse/app/caddy/Caddyfile ]        || { echo "ERROR: Caddyfile missing";          exit 1; }
           [ -f ~/statuspulse/app/.env ]               || { echo "ERROR: .env missing";               exit 1; }
           echo "OK: all required files present"
           VERIFY
@@ -159,7 +160,7 @@ jobs:
           # Guard — all files must exist before touching Docker
           [ -f "app/.env" ]              || { echo "ERROR: app/.env missing";              exit 1; }
           [ -f "app/docker-compose.yml" ] || { echo "ERROR: app/docker-compose.yml missing"; exit 1; }
-          [ -f "caddy/Caddyfile" ]       || { echo "ERROR: caddy/Caddyfile missing"; exit 1; }
+          [ -f "app/caddy/Caddyfile" ]   || { echo "ERROR: app/caddy/Caddyfile missing"; exit 1; }
           echo "All required files verified"
 
           # Login to GHCR
