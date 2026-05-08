@@ -2,25 +2,18 @@
     email vipinsingh@gmail.com
 }
 
+# Main App
 https://av-lap-pg0441tk.taildb17d2.ts.net {
-
-    # Uptime Kuma v2 with UPTIME_KUMA_BASE_PATH=/status
-    # generates all asset URLs as /status/assets/... so we
-    # forward /status* as-is — no prefix stripping needed
-    handle /status* {
-        reverse_proxy uptime-kuma:3001
-    }
-
-    # StatusPulse app
-    handle {
-        reverse_proxy app:8000
-    }
 
     encode gzip
 
-    header {
-        Strict-Transport-Security "max-age=31536000;"
-        X-Content-Type-Options "nosniff"
-        X-Frame-Options "DENY"
-    }
+    reverse_proxy app:8000
+}
+
+# Uptime Kuma
+https://av-lap-pg0441tk.taildb17d2.ts.net:8443 {
+
+    encode gzip
+
+    reverse_proxy uptime-kuma:3001
 }
