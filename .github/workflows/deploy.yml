@@ -101,7 +101,7 @@ jobs:
         run: |
           # Create all required directories + nuke any stale Caddyfile directory
           ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} \
-            "mkdir -p ~/statuspulse/app/caddy && rm -rf ~/statuspulse/app/caddy/Caddyfile"
+            "mkdir -p ~/statuspulse/app/caddy && sudo rm -rf ~/statuspulse/app/caddy/Caddyfile"
  
           # Copy docker-compose.yml
           scp docker-compose.yml \
