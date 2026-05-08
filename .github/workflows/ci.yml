@@ -55,8 +55,8 @@ jobs:
 
       # =========================
       # Build Docker Image
-      # Tag MUST match the `image:` field in docker-compose.yml
-      # so compose finds it locally via --no-build --pull never
+      # Tag matches image: ${APP_IMAGE:-statuspulse:ci} default in docker-compose.yml
+      # Must build BEFORE compose up so the image exists locally
       # =========================
       - name: Build Docker Image
         run: docker build -t statuspulse:ci .
@@ -68,27 +68,22 @@ jobs:
         run: cp .env.example .env
 
       # =========================
-      # Copy Caddyfile into app/ so docker-compose can bind-mount it
-      # Repo layout:  caddy/Caddyfile  (root level)
-      # Compose runs from ./app, mounts ./Caddyfile → needs app/Caddyfile
-      # =========================
-      - name: Copy Caddyfile
-        run: cp ../caddy/Caddyfile ./Caddyfile
-
-      # =========================
       # Start Full Stack via Docker Compose
-      # --no-build  → use the image we just built, never rebuild
-      # --pull never → don't try to pull statuspulse:ci from a registry
+      # Working-dir is ./app so ../caddy/Caddyfile resolves correctly to
+      # repo-root/caddy/Caddyfile which exists after checkout — no copy needed.
+      # APP_IMAGE=statuspulse:ci tells compose to use the locally built image.
+      # --no-build  → skip rebuilding, use the image we just built above
+      # --pull never → don't try to pull statuspulse:ci from any registry
       # =========================
       - name: Start Docker Compose Stack
         run: |
-          docker compose up -d 
+          APP_IMAGE=statuspulse:ci docker compose up -d --no-build --pull never
           echo "Stack started"
 
       # =========================
       # Wait for App to be Healthy
       # 30 attempts x 5s = up to 150s timeout
-      # Prints HTTP code on each retry for easy diagnosis
+      # Prints HTTP status on each retry for easy diagnosis
       # Dumps logs if it never becomes healthy
       # =========================
       - name: Wait for App Health
@@ -113,7 +108,7 @@ jobs:
 
       # =========================
       # Run Integration Tests Against Live Stack
-      # set -o pipefail ensures non-zero exit from the script
+      # set -o pipefail ensures a non-zero exit from the test script
       # propagates even when piped into tee
       # =========================
       - name: Run Integration Tests
@@ -132,7 +127,7 @@ jobs:
 
       # =========================
       # Upload Test Results as Artifact
-      # Always upload — even on failure — so results are inspectable
+      # Always upload — even on failure — so results are always inspectable
       # Path is relative to repo root (not working-directory)
       # =========================
       - name: Upload Test Results

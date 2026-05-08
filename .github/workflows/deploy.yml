@@ -89,38 +89,56 @@ jobs:
           ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} "echo SSH CONNECTION SUCCESSFUL"
 
       # =========================
-      # Copy deployment files to server
-      # Copies docker-compose.yml + .env so the server has everything it needs
+      # Copy Files to Server
+      # Replicates the exact repo structure the compose file expects:
+      #   ~/statuspulse/app/docker-compose.yml
+      #   ~/statuspulse/caddy/Caddyfile
+      #
+      # Compose runs from ~/statuspulse/app/ so ../caddy/Caddyfile
+      # correctly resolves to ~/statuspulse/caddy/Caddyfile — same as local dev.
       # =========================
       - name: Copy Files to Server
         run: |
-          ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} "mkdir -p ~/statuspulse"
+          # Create directory structure mirroring the repo
+          ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} \
+            "mkdir -p ~/statuspulse/app ~/statuspulse/caddy"
 
-          # Copy docker-compose.yml
+          # Copy docker-compose.yml (runner working-dir = ./app)
           scp docker-compose.yml \
-            ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}:~/statuspulse/docker-compose.yml
+            ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}:~/statuspulse/app/docker-compose.yml
 
-          # Copy Caddyfile — must sit next to docker-compose.yml on the server
-          # because docker-compose.yml mounts it as ./Caddyfile
+          # Copy Caddyfile (runner: ../caddy/Caddyfile = repo-root/caddy/Caddyfile)
           scp ../caddy/Caddyfile \
-            ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}:~/statuspulse/Caddyfile
+            ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}:~/statuspulse/caddy/Caddyfile
 
-          # Write .env from GitHub secrets
-          ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} bash -c "cat > ~/statuspulse/.env" << 'EOF'
-          APP_PORT=8000
-          DB_HOST=postgres
-          DB_PORT=5432
-          DB_NAME=${{ secrets.DB_NAME }}
-          DB_USER=${{ secrets.DB_USER }}
-          DB_PASSWORD=${{ secrets.DB_PASSWORD }}
-          REDIS_HOST=redis
-          REDIS_PORT=6379
-          REDIS_PASSWORD=${{ secrets.REDIS_PASSWORD }}
-          EOF
+          # Write .env into app/ (compose loads it from same dir as docker-compose.yml)
+          ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} "cat > ~/statuspulse/app/.env" << 'EOF'
+APP_PORT=8000
+DB_HOST=postgres
+DB_PORT=5432
+DB_NAME=${{ secrets.DB_NAME }}
+DB_USER=${{ secrets.DB_USER }}
+DB_PASSWORD=${{ secrets.DB_PASSWORD }}
+REDIS_HOST=redis
+REDIS_PORT=6379
+REDIS_PASSWORD=${{ secrets.REDIS_PASSWORD }}
+EOF
+
+          # Verify structure
+          ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} bash -s << 'VERIFY'
+          set -e
+          echo "=== Server deployment structure ==="
+          ls -la ~/statuspulse/app/
+          ls -la ~/statuspulse/caddy/
+          [ -f ~/statuspulse/app/docker-compose.yml ] || { echo "ERROR: docker-compose.yml missing"; exit 1; }
+          [ -f ~/statuspulse/caddy/Caddyfile ]        || { echo "ERROR: Caddyfile missing";          exit 1; }
+          [ -f ~/statuspulse/app/.env ]               || { echo "ERROR: .env missing";               exit 1; }
+          echo "OK: all required files present"
+          VERIFY
 
       # =========================
       # Deploy Application via Docker Compose
-      # Uses compose on the server so postgres + redis start alongside the app
+      # Runs full stack: app + postgres + redis + caddy
       # =========================
       - name: Deploy Application
         env:
@@ -138,7 +156,9 @@ jobs:
           REPO="$2"
           GHCR_PAT="$3"
           GH_ACTOR="$4"
-          WORKDIR="$HOME/statuspulse"
+
+          # Compose must run from app/ so ../caddy/Caddyfile resolves correctly
+          WORKDIR="$HOME/statuspulse/app"
 
           echo "======================================"
           echo "Deploying SHA: ${DEPLOY_SHA}"
@@ -146,16 +166,16 @@ jobs:
 
           cd "$WORKDIR"
 
-          # Verify .env exists
-          if [ ! -f ".env" ]; then
-            echo "ERROR: .env not found at $WORKDIR/.env"
-            exit 1
-          fi
+          # Guard — all files must exist before touching Docker
+          [ -f ".env" ]              || { echo "ERROR: .env missing";              exit 1; }
+          [ -f "docker-compose.yml" ] || { echo "ERROR: docker-compose.yml missing"; exit 1; }
+          [ -f "../caddy/Caddyfile" ] || { echo "ERROR: ../caddy/Caddyfile missing"; exit 1; }
+          echo "All required files verified"
 
           # Login to GHCR
           echo "${GHCR_PAT}" | docker login ghcr.io -u "${GH_ACTOR}" --password-stdin
 
-          # Save previous image tag for rollback
+          # Save current app image for rollback
           PREVIOUS_IMAGE=$(docker inspect statuspulse-app \
             --format='{{.Config.Image}}' 2>/dev/null || true)
           echo "Previous image: ${PREVIOUS_IMAGE:-none}"
@@ -164,23 +184,18 @@ jobs:
           echo "Pulling new image..."
           docker pull "ghcr.io/${REPO}/statuspulse:${DEPLOY_SHA}"
 
-          # Update IMAGE_TAG in env so compose uses the exact SHA image
-          export IMAGE_TAG="${DEPLOY_SHA}"
-
-          # Bring up full stack (app + postgres + redis) via compose
-          # --no-build: use the image we just pulled
-          # --pull never: don't try to pull postgres/redis again, they're already cached
+          # Bring up full stack with the new image
           echo "Starting stack via Docker Compose..."
           APP_IMAGE="ghcr.io/${REPO}/statuspulse:${DEPLOY_SHA}" \
             docker compose \
               --env-file .env \
               -f docker-compose.yml \
-              up -d --remove-orphans
+              up -d --no-build --pull never --remove-orphans
 
           echo "Waiting for application startup (30s)..."
           sleep 30
 
-          # Health check with retries — 8 attempts x 10s = 80s window
+          # Health check — 8 attempts x 10s = 80s window
           echo "Running health check..."
           HEALTHY=false
           for i in $(seq 1 8); do
@@ -201,32 +216,26 @@ jobs:
             echo "======================================"
             echo "Deployment successful!"
             echo "======================================"
-            # Clean up old unused images to save disk space
             docker image prune -f || true
           else
             echo "======================================"
             echo "Health check failed — rolling back..."
             echo "======================================"
 
-            # Print container logs for diagnosis
-            echo "=== App container logs ==="
-            docker logs statuspulse-app --tail 50 || true
-            echo "=== Postgres logs ==="
-            docker logs statuspulse-postgres --tail 20 || true
-            echo "=== Redis logs ==="
-            docker logs statuspulse-redis --tail 20 || true
+            echo "=== App logs ==="      && docker logs statuspulse-app      --tail 50 || true
+            echo "=== Postgres logs ===" && docker logs statuspulse-postgres --tail 20 || true
+            echo "=== Redis logs ==="    && docker logs statuspulse-redis    --tail 20 || true
+            echo "=== Caddy logs ==="    && docker logs statuspulse-caddy    --tail 20 || true
 
-            # Roll back: stop current stack and restart previous image
             docker compose -f docker-compose.yml down || true
 
             if [ -n "$PREVIOUS_IMAGE" ]; then
               echo "Restoring previous image: $PREVIOUS_IMAGE"
-              # Patch compose to use the old image and bring stack back up
               APP_IMAGE="$PREVIOUS_IMAGE" \
                 docker compose \
                   --env-file .env \
                   -f docker-compose.yml \
-                  up -d --remove-orphans
+                  up -d --no-build --pull never --remove-orphans
               echo "Rollback complete"
             else
               echo "No previous image — stack left down"
