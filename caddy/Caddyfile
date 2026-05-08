@@ -2,6 +2,10 @@
     email vipinsingh@gmail.com
 }
 
+# =========================================================
+# MAIN APPLICATION
+# =========================================================
+
 https://av-lap-pg0441tk.taildb17d2.ts.net {
 
     encode gzip
@@ -12,21 +16,14 @@ https://av-lap-pg0441tk.taildb17d2.ts.net {
         X-Frame-Options "DENY"
     }
 
-    # =========================================================
-    # STATUSPULSE APP
-    # =========================================================
-
-    reverse_proxy /health app:8000
-
-    reverse_proxy /docs* app:8000
-
     reverse_proxy app:8000
+}
 
-    # =========================================================
-    # UPTIME KUMA
-    # =========================================================
+# =========================================================
+# UPTIME KUMA
+# =========================================================
 
-    handle_path /status/* {
-        reverse_proxy uptime-kuma:3001
-    }
+https://status.av-lap-pg0441tk.taildb17d2.ts.net {
+
+    reverse_proxy uptime-kuma:3001
 }
