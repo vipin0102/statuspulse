@@ -124,6 +124,8 @@ rollback() {
 
         cd "$PROJECT_DIR"
 
+        docker compose down --remove-orphans || true
+
         docker rm -f \
             statuspulse-app \
             statuspulse-postgres \
@@ -226,11 +228,14 @@ main() {
 
     log_section "STOPPING OLD CONTAINERS"
 
+    docker compose down --remove-orphans || true
+
     docker rm -f \
         statuspulse-app \
         statuspulse-postgres \
         statuspulse-redis \
         statuspulse-caddy \
+        statuspulse-uptime-kuma \
         2>/dev/null || true
 
     docker container prune -f || true
@@ -258,7 +263,6 @@ main() {
     log_section "HEALTH CHECK VALIDATION"
 
     if ! wait_healthy; then
-
         rollback
     fi
 
@@ -286,6 +290,9 @@ main() {
 
     log "Swagger docs:"
     log "https://av-lap-pg0441tk.taildb17d2.ts.net/docs"
+
+    log "Uptime Kuma:"
+    log "https://av-lap-pg0441tk.taildb17d2.ts.net/status"
 }
 
 main "$@"
