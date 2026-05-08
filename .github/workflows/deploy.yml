@@ -111,18 +111,9 @@ jobs:
           scp ../caddy/Caddyfile \
             ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}:~/statuspulse/caddy/Caddyfile
 
-          # Write .env into app/ (compose loads it from same dir as docker-compose.yml)
-          ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} "cat > ~/statuspulse/app/.env" << 'EOF'
-APP_PORT=8000
-DB_HOST=postgres
-DB_PORT=5432
-DB_NAME=${{ secrets.DB_NAME }}
-DB_USER=${{ secrets.DB_USER }}
-DB_PASSWORD=${{ secrets.DB_PASSWORD }}
-REDIS_HOST=redis
-REDIS_PORT=6379
-REDIS_PASSWORD=${{ secrets.REDIS_PASSWORD }}
-EOF
+          # Write .env into app/ using printf to avoid heredoc YAML conflicts
+          ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} \
+            "printf 'APP_PORT=8000\nDB_HOST=postgres\nDB_PORT=5432\nDB_NAME=${{ secrets.DB_NAME }}\nDB_USER=${{ secrets.DB_USER }}\nDB_PASSWORD=${{ secrets.DB_PASSWORD }}\nREDIS_HOST=redis\nREDIS_PORT=6379\nREDIS_PASSWORD=${{ secrets.REDIS_PASSWORD }}\n' > ~/statuspulse/app/.env"
 
           # Verify structure
           ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} bash -s << 'VERIFY'
