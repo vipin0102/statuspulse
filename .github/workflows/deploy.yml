@@ -174,8 +174,8 @@ jobs:
           # Stop and remove any existing containers by name to avoid
           # "container name already in use" conflicts across deploys
           echo "Stopping existing containers..."
-          docker stop statuspulse-app statuspulse-postgres statuspulse-redis statuspulse-caddy 2>/dev/null || true
-          docker rm   statuspulse-app statuspulse-postgres statuspulse-redis statuspulse-caddy 2>/dev/null || true
+          docker stop statuspulse-app statuspulse-postgres statuspulse-redis statuspulse-caddy statuspulse-uptime-kuma 2>/dev/null || true
+          docker rm   statuspulse-app statuspulse-postgres statuspulse-redis statuspulse-caddy statuspulse-uptime-kuma 2>/dev/null || true
 
           # Pull new image
           echo "Pulling new image..."
