@@ -1,0 +1,24 @@
+{
+    email vipinsingh@gmail.com
+}
+
+https://av-lap-pg0441tk.taildb17d2.ts.net {
+
+    encode gzip
+
+    # StatusPulse API
+    handle / {
+        reverse_proxy app:8000
+    }
+
+    # Uptime Kuma
+    handle_path /status/* {
+        reverse_proxy uptime-kuma:3001
+    }
+
+    header {
+        Strict-Transport-Security "max-age=31536000;"
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "DENY"
+    }
+}

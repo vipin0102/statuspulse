@@ -74,10 +74,20 @@ services:
     networks:
       - statuspulse-network      
 
+  uptime-kuma:
+    image: louislam/uptime-kuma:1
+    container_name: statuspulse-uptime-kuma
+    restart: unless-stopped
+    volumes:
+      - uptime_kuma_data:/app/data
+    networks:
+      - statuspulse-network  
+
 volumes:
   postgres_data:
   caddy_data:
   caddy_config:
+  uptime_kuma_data:
 
 networks:
   statuspulse-network:
