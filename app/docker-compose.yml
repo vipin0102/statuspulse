@@ -75,7 +75,7 @@ services:
       - statuspulse-network      
 
   uptime-kuma:
-    image: louislam/uptime-kuma:1
+    image: louislam/uptime-kuma:1-alpine
     container_name: statuspulse-uptime-kuma
     restart: unless-stopped
     volumes:
