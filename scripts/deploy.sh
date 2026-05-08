@@ -129,6 +129,7 @@ rollback() {
             statuspulse-postgres \
             statuspulse-redis \
             statuspulse-caddy \
+            statuspulse-uptime-kuma \
             2>/dev/null || true
 
         docker compose up -d --remove-orphans
