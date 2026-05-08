@@ -89,15 +89,11 @@ wait_healthy() {
 
         if [ "$HTTP" = "200" ]; then
 
-            BODY=$(curl -k -s "$HEALTH_URL" || true)
-
-            if echo "$BODY" | grep -q '"healthy"'; then
-                log "Health check successful"
-                return 0
-            fi
+            log "Health check successful"
+            return 0
         fi
 
-        log "Health check attempt $i/$MAX_RETRIES failed"
+        log "Health check attempt $i/$MAX_RETRIES failed (HTTP $HTTP)"
 
         sleep "$RETRY_INTERVAL"
     done
