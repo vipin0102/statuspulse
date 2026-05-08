@@ -171,14 +171,22 @@ jobs:
             --format='{{.Config.Image}}' 2>/dev/null || true)
           echo "Previous image: ${PREVIOUS_IMAGE:-none}"
 
+          # Stop and remove any existing containers by name to avoid
+          # "container name already in use" conflicts across deploys
+          echo "Stopping existing containers..."
+          docker stop statuspulse-app statuspulse-postgres statuspulse-redis statuspulse-caddy 2>/dev/null || true
+          docker rm   statuspulse-app statuspulse-postgres statuspulse-redis statuspulse-caddy 2>/dev/null || true
+
           # Pull new image
           echo "Pulling new image..."
           docker pull "ghcr.io/${REPO}/statuspulse:${DEPLOY_SHA}"
 
           # Bring up full stack with the new image
+          # --project-name ensures consistent naming regardless of working dir
           echo "Starting stack via Docker Compose..."
           APP_IMAGE="ghcr.io/${REPO}/statuspulse:${DEPLOY_SHA}" \
             docker compose \
+              --project-name statuspulse \
               --env-file .env \
               -f docker-compose.yml \
               up -d --no-build --pull never --remove-orphans
@@ -218,12 +226,13 @@ jobs:
             echo "=== Redis logs ==="    && docker logs statuspulse-redis    --tail 20 || true
             echo "=== Caddy logs ==="    && docker logs statuspulse-caddy    --tail 20 || true
 
-            docker compose -f docker-compose.yml down || true
+            docker compose --project-name statuspulse -f docker-compose.yml down || true
 
             if [ -n "$PREVIOUS_IMAGE" ]; then
               echo "Restoring previous image: $PREVIOUS_IMAGE"
               APP_IMAGE="$PREVIOUS_IMAGE" \
                 docker compose \
+                  --project-name statuspulse \
                   --env-file .env \
                   -f docker-compose.yml \
                   up -d --no-build --pull never --remove-orphans
