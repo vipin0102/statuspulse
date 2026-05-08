@@ -99,17 +99,17 @@ jobs:
       # =========================
       - name: Copy Files to Server
         run: |
-          # Create all required directories + nuke any stale Caddyfile directory
+          # Create directory structure mirroring the repo
           ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} \
-            "mkdir -p ~/statuspulse/app/caddy && sudo rm -rf ~/statuspulse/app/caddy/Caddyfile"
- 
-          # Copy docker-compose.yml
+            "mkdir -p ~/statuspulse/app ~/statuspulse/caddy"
+
+          # Copy docker-compose.yml (runner working-dir = ./app)
           scp docker-compose.yml \
             ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}:~/statuspulse/app/docker-compose.yml
- 
-          # Copy Caddyfile into app/caddy/ so docker-compose ./caddy/Caddyfile resolves correctly
-          scp ./caddy/Caddyfile \
-            ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}:~/statuspulse/app/caddy/Caddyfile
+
+          # Copy Caddyfile (runner: ../caddy/Caddyfile = repo-root/caddy/Caddyfile)
+          scp ../caddy/Caddyfile \
+            ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}:~/statuspulse/caddy/Caddyfile
 
           # Write .env into app/ using printf to avoid heredoc YAML conflicts
           ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} \
