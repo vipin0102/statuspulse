@@ -12,21 +12,10 @@ https://av-lap-pg0441tk.taildb17d2.ts.net {
         X-Frame-Options "DENY"
     }
 
-    # =====================================================
-    # UPTIME KUMA
-    # =====================================================
-
-    handle_path /status/* {
+    handle /status* {
+        uri strip_prefix /status
         reverse_proxy uptime-kuma:3001
     }
-
-    handle /status {
-        redir /status/
-    }
-
-    # =====================================================
-    # STATUSPULSE APP
-    # =====================================================
 
     handle {
         reverse_proxy app:8000
