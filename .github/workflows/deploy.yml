@@ -101,7 +101,7 @@ jobs:
         run: |
           # Create directory structure mirroring the repo
           ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} \
-            "mkdir -p ~/statuspulse/app ~/statuspulse/caddy"
+            "mkdir -p ~/statuspulse/app ~/statuspulse/caddy && rm -rf ~/statuspulse/caddy/Caddyfile"
 
           # Copy docker-compose.yml (runner working-dir = ./app)
           scp docker-compose.yml \
@@ -148,7 +148,7 @@ jobs:
           GHCR_PAT="$3"
           GH_ACTOR="$4"
 
-          # Compose must run from app/ so ../caddy/Caddyfile resolves correctly
+          # Compose must run from app/ so ./caddy/Caddyfile resolves correctly
           WORKDIR="$HOME/statuspulse"
 
           echo "======================================"
