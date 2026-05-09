@@ -15,6 +15,14 @@ resource "aws_security_group" "statuspulse_sg" {
   }
 
   ingress {
+    description = "8000"
+    from_port   = 8000
+    to_port     = 8000
+    protocol    = "tcp"
+    cidr_blocks = [var.allowed_ssh_ip]
+  }
+
+  ingress {
     description = "HTTP"
     from_port   = 80
     to_port     = 80
@@ -44,6 +52,16 @@ resource "aws_security_group" "statuspulse_sg" {
     protocol    = "-1"
     cidr_blocks = ["0.0.0.0/0"]
   }
+}
+
+resource "aws_eip" "statuspulse_eip" {
+  instance = aws_instance.statuspulse.id
+
+  tags = {
+    Name = "${var.project_name}-eip"
+  }
+
+  depends_on = [aws_instance.statuspulse]
 }
 
 resource "aws_instance" "statuspulse" {

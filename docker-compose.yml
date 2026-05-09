@@ -5,7 +5,8 @@ services:
 #    build:
 #      context: .
 #      dockerfile: Dockerfile
-    image: ${APP_IMAGE:-statuspulse:ci}
+#    image: ${APP_IMAGE:-statuspulse:ci}
+    image: ghcr.io/vipin0102/statuspulse/statuspulse:latest
     container_name: statuspulse-app
     ports:
       - "${APP_PORT:-8000}:8000"
