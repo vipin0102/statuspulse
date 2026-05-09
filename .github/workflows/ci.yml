@@ -45,7 +45,6 @@ jobs:
 
       # =========================
       # Hadolint — Scan Dockerfile
-      # Path is relative to repo root (not working-directory)
       # =========================
       - name: Lint Dockerfile
         uses: hadolint/hadolint-action@v3.1.0
@@ -55,11 +54,23 @@ jobs:
 
       # =========================
       # Build Docker Image
-      # Tag matches image: ${APP_IMAGE:-statuspulse:ci} default in docker-compose.yml
-      # Must build BEFORE compose up so the image exists locally
+      # Tag as statuspulse:ci for use in this pipeline run
       # =========================
       - name: Build Docker Image
         run: docker build -t statuspulse:ci .
+
+      # =========================
+      # Log in to GitHub Container Registry
+      # Needed so docker compose can pull other private images (uptime-kuma
+      # is public, but keeps auth consistent for any future private images)
+      # GITHUB_TOKEN is automatically available in all Actions runs
+      # =========================
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       # =========================
       # Create .env from example
@@ -69,22 +80,19 @@ jobs:
 
       # =========================
       # Start Full Stack via Docker Compose
-      # Working-dir is ./app so ../caddy/Caddyfile resolves correctly to
-      # repo-root/caddy/Caddyfile which exists after checkout — no copy needed.
-      # APP_IMAGE=statuspulse:ci tells compose to use the locally built image.
+      # APP_IMAGE=statuspulse:ci overrides the default ghcr image in
+      # docker-compose.yml so the locally-built image is used — no pull needed.
       # --no-build  → skip rebuilding, use the image we just built above
       # --pull never → don't try to pull statuspulse:ci from any registry
       # =========================
       - name: Start Docker Compose Stack
         run: |
-          APP_IMAGE=statuspulse:ci docker compose up -d 
+          APP_IMAGE=statuspulse:ci docker compose up -d --no-build --pull never
           echo "Stack started"
 
       # =========================
       # Wait for App to be Healthy
       # 30 attempts x 5s = up to 150s timeout
-      # Prints HTTP status on each retry for easy diagnosis
-      # Dumps logs if it never becomes healthy
       # =========================
       - name: Wait for App Health
         run: |
@@ -108,8 +116,6 @@ jobs:
 
       # =========================
       # Run Integration Tests Against Live Stack
-      # set -o pipefail ensures a non-zero exit from the test script
-      # propagates even when piped into tee
       # =========================
       - name: Run Integration Tests
         run: |
@@ -119,7 +125,6 @@ jobs:
 
       # =========================
       # Dump Compose Logs on Failure
-      # Only runs when a step has failed — helps diagnose test failures
       # =========================
       - name: Dump Compose Logs on Failure
         if: failure()
@@ -127,20 +132,17 @@ jobs:
 
       # =========================
       # Upload Test Results as Artifact
-      # Always upload — even on failure — so results are always inspectable
-      # Path is relative to repo root (not working-directory)
       # =========================
       - name: Upload Test Results
         uses: actions/upload-artifact@v4
         if: always()
         with:
           name: integration-test-results
-          path: app/integration-test-results.txt
+          path: integration-test-results.txt
           if-no-files-found: warn
 
       # =========================
       # Tear Down Stack
-      # Always runs — cleans containers, networks, and volumes
       # =========================
       - name: Tear Down Stack
         if: always()
