@@ -1,0 +1,18 @@
+# Terraform
+.terraform/
+terraform.tfstate*
+*.tfstate
+*.tfstate.backup
+
+# SSH Keys
+keys/
+*.pem
+terra-key-pair
+terra-key-pair.pub
+
+# Sensitive vars
+terraform.tfvars
+.env
+.env.example
+commands.txt
+.terraform.lock.hcl
