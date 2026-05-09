@@ -6,7 +6,7 @@
 # MAIN APPLICATION
 # =====================================================
 
-https://av-lap-pg0441tk.taildb17d2.ts.net {
+http://13.233.212.212 {
 
     encode gzip
 
@@ -45,7 +45,7 @@ https://av-lap-pg0441tk.taildb17d2.ts.net {
 # UPTIME KUMA
 # =====================================================
 
-https://av-lap-pg0441tk.taildb17d2.ts.net:8443 {
+http://13.233.212.212:8443 {
 
     encode gzip
 
