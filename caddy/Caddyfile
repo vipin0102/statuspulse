@@ -6,7 +6,7 @@
 # MAIN APPLICATION
 # =====================================================
 
-https://ip-172-31-45-227.taildb17d2.ts.net/ {
+https://ip-172-31-45-227.taildb17d2.ts.net {
 
     encode gzip
 
