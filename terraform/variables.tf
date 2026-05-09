@@ -7,7 +7,7 @@ variable "aws_region" {
 variable "instance_type" {
   description = "EC2 instance type"
   type        = string
-  default     = "t3.micro"
+  default     = "c7i-flex.large"
 }
 
 variable "ami_id" {
@@ -32,3 +32,4 @@ variable "tailscale_auth_key" {
   type        = string
   sensitive   = true
 }
+

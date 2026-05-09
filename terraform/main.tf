@@ -76,7 +76,7 @@ resource "aws_instance" "statuspulse" {
   })
 
   root_block_device {
-    volume_size = 10
+    volume_size = 15
     volume_type = "gp3"
   }
 
