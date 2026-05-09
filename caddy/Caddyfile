@@ -6,7 +6,7 @@
 # MAIN APPLICATION
 # =====================================================
 
-https://statuspulse-server-1.taildb17d2.ts.net {
+http://13.207.24.155 {
 
     encode gzip
 
@@ -45,7 +45,7 @@ https://statuspulse-server-1.taildb17d2.ts.net {
 # UPTIME KUMA
 # =====================================================
 
-https://statuspulse-server-1.taildb17d2.ts.net:8443 {
+http://13.207.24.155:8443 {
 
     encode gzip
 
