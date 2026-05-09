@@ -87,7 +87,7 @@ jobs:
       # =========================
       - name: Start Docker Compose Stack
         run: |
-          APP_IMAGE=statuspulse:ci docker compose up -d --no-build --pull never
+          APP_IMAGE=statuspulse:ci docker compose up -d --no-build
           echo "Stack started"
 
       # =========================
