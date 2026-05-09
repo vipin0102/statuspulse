@@ -3,46 +3,33 @@
 # StatusPulse — Standalone Server Deployment Script
 # scripts/deploy.sh
 #
-# Runs INDEPENDENTLY of GitHub Actions CI/CD pipeline.
 # Uses docker compose — same as GitHub Actions deploy.yml.
 #
 # Usage:
-#   # Deploy latest image
-#   bash ~/statuspulse/scripts/deploy.sh
-#
-#   # Deploy specific SHA
-#   APP_IMAGE=ghcr.io/vipin0102/statuspulse/statuspulse:abc123 \
-#     bash ~/statuspulse/scripts/deploy.sh
-#
-# What it does:
-#   1. Pull latest image from ghcr.io
-#   2. Zero-downtime: start new → health check → stop old (via compose)
-#   3. Rollback automatically if health check fails
-#   4. Log all actions with timestamps
-#   5. Idempotent — safe to run repeatedly
+#   bash ~/scripts/deploy.sh
+#   APP_IMAGE=ghcr.io/vipin0102/statuspulse/statuspulse:abc123 bash ~/scripts/deploy.sh
 # =============================================================
 
 set -euo pipefail
 
 # =============================================================
-# CONFIG — matches exactly what deploy.yml uses on GitHub Actions
+# CONFIG
 # =============================================================
 IMAGE="${APP_IMAGE:-ghcr.io/vipin0102/statuspulse/statuspulse:latest}"
-WORKDIR="${WORKDIR:-$HOME/statuspulse}"
+WORKDIR="${WORKDIR:-/opt/statuspulse}"
 COMPOSE_FILE="$WORKDIR/docker-compose.yml"
 ENV_FILE="$WORKDIR/.env"
 LOG_FILE="${LOG_FILE:-$WORKDIR/deploy.log}"
 LOCK_FILE="/tmp/statuspulse-deploy.lock"
 COMPOSE_PROJECT="statuspulse"
 HEALTH_URL="http://localhost:8000/health"
-MAX_RETRIES=20
+MAX_RETRIES=24
 RETRY_INTERVAL=5
-
-# docker compose command — works with both plugin (v2) and standalone (v1)
-COMPOSE="docker compose"
+GHCR_USER="${GHCR_USER:-}"
+GHCR_PAT="${GHCR_PAT:-}"
 
 # =============================================================
-# LOGGING — timestamped, written to file + stdout
+# LOGGING
 # =============================================================
 log() {
     local msg="[$(date '+%Y-%m-%d %H:%M:%S')] $1"
@@ -56,7 +43,7 @@ log_section() {
 }
 
 # =============================================================
-# LOCK — prevents concurrent deploys (idempotency)
+# LOCK — prevents concurrent deploys
 # =============================================================
 acquire_lock() {
     if [ -f "$LOCK_FILE" ]; then
@@ -80,14 +67,10 @@ release_lock() {
 trap release_lock EXIT
 
 # =============================================================
-# COMPOSE WRAPPER — always runs with correct project + env + file
-# Same flags as deploy.yml:
-#   --project-name statuspulse
-#   --env-file .env
-#   -f docker-compose.yml
+# COMPOSE WRAPPER — same flags as deploy.yml on GitHub Actions
 # =============================================================
 compose() {
-    APP_IMAGE="$IMAGE" $COMPOSE \
+    APP_IMAGE="$IMAGE" docker compose \
         --project-name "$COMPOSE_PROJECT" \
         --env-file "$ENV_FILE" \
         -f "$COMPOSE_FILE" \
@@ -95,7 +78,7 @@ compose() {
 }
 
 # =============================================================
-# HEALTH CHECK — polls /health until 200+healthy or times out
+# HEALTH CHECK
 # =============================================================
 wait_healthy() {
     local url="$1"
@@ -124,58 +107,101 @@ wait_healthy() {
 }
 
 # =============================================================
-# ROLLBACK — bring stack back up with old image via compose
+# ROLLBACK — restore old image via compose
 # =============================================================
 rollback() {
     log_section "ROLLBACK"
 
     if [ -n "${OLD_IMAGE:-}" ]; then
         log "Rolling back to: $OLD_IMAGE"
-
-        # Temporarily set IMAGE to old image for the compose wrapper
-        IMAGE="$OLD_IMAGE" compose \
+        APP_IMAGE="$OLD_IMAGE" docker compose \
+            --project-name "$COMPOSE_PROJECT" \
+            --env-file "$ENV_FILE" \
+            -f "$COMPOSE_FILE" \
             up -d --no-build --pull never --remove-orphans
-
-        log "Rollback complete — old image restored via docker compose"
+        log "Rollback complete"
     else
-        log "WARNING: no previous image — bringing stack down"
-        compose down || true
+        log "WARNING: no previous image — stack left as-is"
     fi
 
     exit 1
 }
 
 # =============================================================
-# PREFLIGHT — validate everything before touching Docker
+# PREFLIGHT
 # =============================================================
 preflight() {
     log_section "PREFLIGHT"
 
-    [ -f "$ENV_FILE" ] || {
-        log "ERROR: .env not found at $ENV_FILE"
-        exit 1
-    }
-    [ -f "$COMPOSE_FILE" ] || {
-        log "ERROR: docker-compose.yml not found at $COMPOSE_FILE"
-        exit 1
-    }
-    command -v docker >/dev/null 2>&1 || {
-        log "ERROR: docker not installed"
-        exit 1
-    }
-    $COMPOSE version >/dev/null 2>&1 || {
-        log "ERROR: docker compose not available"
-        exit 1
-    }
+    [ -f "$ENV_FILE" ]     || { log "ERROR: .env not found at $ENV_FILE";        exit 1; }
+    [ -f "$COMPOSE_FILE" ] || { log "ERROR: docker-compose.yml not found at $COMPOSE_FILE"; exit 1; }
+    command -v docker >/dev/null 2>&1 || { log "ERROR: docker not installed";    exit 1; }
+    docker compose version >/dev/null 2>&1 || { log "ERROR: docker compose not available"; exit 1; }
 
     mkdir -p "$(dirname "$LOG_FILE")"
 
-    log "IMAGE:         $IMAGE"
-    log "WORKDIR:       $WORKDIR"
-    log "COMPOSE_FILE:  $COMPOSE_FILE"
-    log "ENV_FILE:      $ENV_FILE"
-    log "PROJECT:       $COMPOSE_PROJECT"
+    # GHCR login if credentials provided
+    if [ -n "$GHCR_PAT" ] && [ -n "$GHCR_USER" ]; then
+        log "Logging in to GHCR as $GHCR_USER..."
+        echo "$GHCR_PAT" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
+        log "GHCR login successful"
+    else
+        log "Using saved docker login credentials"
+    fi
+
+    log "IMAGE:        $IMAGE"
+    log "WORKDIR:      $WORKDIR"
+    log "COMPOSE_FILE: $COMPOSE_FILE"
+    log "ENV_FILE:     $ENV_FILE"
+    log "PROJECT:      $COMPOSE_PROJECT"
     log "Preflight passed"
+}
+
+# =============================================================
+# ENSURE DEPENDENCIES — postgres + redis must be running
+# before app starts. On first deploy, start full stack.
+# =============================================================
+ensure_dependencies() {
+    log_section "CHECKING DEPENDENCIES"
+
+    POSTGRES_RUNNING=$(docker inspect statuspulse-postgres \
+        --format='{{.State.Running}}' 2>/dev/null || echo "false")
+    REDIS_RUNNING=$(docker inspect statuspulse-redis \
+        --format='{{.State.Running}}' 2>/dev/null || echo "false")
+
+    if [ "$POSTGRES_RUNNING" = "true" ] && [ "$REDIS_RUNNING" = "true" ]; then
+        log "postgres: running ✓"
+        log "redis:    running ✓"
+        return 0
+    fi
+
+    log "postgres: $POSTGRES_RUNNING"
+    log "redis:    $REDIS_RUNNING"
+    log "Dependencies not running — starting full stack first..."
+
+    # Start everything except app (app will be started separately with new image)
+    compose up -d --remove-orphans postgres redis
+
+    log "Waiting for postgres and redis to be healthy..."
+    local retries=20
+    for ((i=1; i<=retries; i++)); do
+        PG=$(docker inspect statuspulse-postgres \
+            --format='{{.State.Health.Status}}' 2>/dev/null || echo "unknown")
+        RD=$(docker inspect statuspulse-redis \
+            --format='{{.State.Health.Status}}' 2>/dev/null || echo "unknown")
+
+        log "Attempt $i/$retries — postgres: $PG | redis: $RD"
+
+        if [ "$PG" = "healthy" ] && [ "$RD" = "healthy" ]; then
+            log "postgres: healthy ✓"
+            log "redis:    healthy ✓"
+            return 0
+        fi
+        sleep 5
+    done
+
+    log "ERROR: dependencies failed to become healthy"
+    exit 1
 }
 
 # =============================================================
@@ -191,7 +217,7 @@ main() {
     cd "$WORKDIR"
 
     # ----------------------------------------------------------
-    # 1. Save current app image for rollback
+    # 1. Save current image for rollback
     # ----------------------------------------------------------
     log_section "SAVING CURRENT STATE"
     OLD_IMAGE=$(docker inspect statuspulse-app \
@@ -210,25 +236,21 @@ main() {
     log "Pull complete"
 
     # ----------------------------------------------------------
-    # 3. Zero-downtime: scale app to 0 replicas temporarily
-    #    while new image starts — postgres/redis/caddy keep running
-    #
-    # Flow:
-    #   compose up --no-deps app   → start new app container
-    #   health check               → verify new is healthy
-    #   if fails                   → rollback to old image
+    # 3. Ensure postgres + redis are running before deploying app
+    # ----------------------------------------------------------
+    ensure_dependencies
+
+    # ----------------------------------------------------------
+    # 4. Zero-downtime: stop only app, start new via compose
+    #    postgres/redis/caddy/uptime-kuma stay running
     # ----------------------------------------------------------
     log_section "ZERO-DOWNTIME DEPLOY VIA DOCKER COMPOSE"
 
-    # Stop and remove only the app container — rest of stack stays up
-    log "Stopping old app container (postgres/redis/caddy stay running)..."
+    log "Stopping old app container..."
     docker stop statuspulse-app 2>/dev/null || true
     docker rm   statuspulse-app 2>/dev/null || true
+    log "Old app container removed"
 
-    # Start new app container using compose
-    # --no-deps → don't restart postgres/redis/caddy
-    # --no-build → use pulled image, don't rebuild
-    # --pull never → don't try to pull again, we already did
     log "Starting new app container via docker compose..."
     compose up -d \
         --no-deps \
@@ -237,32 +259,34 @@ main() {
         --remove-orphans \
         app
 
-    log "New app container started"
+    log "New app container started — waiting 10s for startup..."
+    sleep 10
 
     # ----------------------------------------------------------
-    # 4. Health check new container
+    # 5. Health check
     # ----------------------------------------------------------
     log_section "HEALTH CHECK"
 
     if ! wait_healthy "$HEALTH_URL" "new app container"; then
-        log "ERROR: new container failed health check"
-        # Show logs to help diagnose
         log "=== App container logs ==="
-        docker logs statuspulse-app --tail 30 2>/dev/null || true
+        docker logs statuspulse-app --tail 50 2>/dev/null || true
+        log "=== Postgres logs ==="
+        docker logs statuspulse-postgres --tail 20 2>/dev/null || true
+        log "=== Redis logs ==="
+        docker logs statuspulse-redis --tail 20 2>/dev/null || true
         rollback
     fi
 
     # ----------------------------------------------------------
-    # 5. Ensure full stack is up and consistent
-    #    Brings up any other services that may have drifted
+    # 6. Bring up any remaining services (caddy, uptime-kuma)
     # ----------------------------------------------------------
     log_section "FULL STACK SYNC"
-    log "Syncing full stack via docker compose..."
+    log "Ensuring full stack is running..."
     compose up -d --remove-orphans
     log "Full stack in sync"
 
     # ----------------------------------------------------------
-    # 6. Cleanup old images to save disk space
+    # 7. Cleanup
     # ----------------------------------------------------------
     log_section "CLEANUP"
     docker image prune -f 2>/dev/null || true
@@ -274,7 +298,7 @@ main() {
     log_section "DEPLOYMENT SUCCESSFUL"
     log "Deployed:  $IMAGE"
     log "Replaced:  ${OLD_IMAGE:-none}"
-    log "Log file:  $LOG_FILE"
+    log "Log:       $LOG_FILE"
 }
 
-main "$@"
+main "$@"  

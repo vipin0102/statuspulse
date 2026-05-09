@@ -3,3 +3,4 @@ sudo apt install -y jq curl openssl
 crontab -e 
 */5 * * * * /home/deploy/statuspulse/scripts/health-monitor.sh >> /var/log/statuspulse-cron.log 2>&1
 export ALERT_WEBHOOK_URL=https://ntfy.sh/statuspulse-alerts-vipin
+echo "pat_tocken" | sudo docker login ghcr.io -u vipin0102 --password-stdin
