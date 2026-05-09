@@ -10,8 +10,3 @@ newgrp docker
 
 cd /opt
 
-git clone https://github.com/vipin0102/statuspulse.git
-
-cd statuspulse/app
-
-docker compose up -d
