@@ -26,3 +26,9 @@ variable "project_name" {
   type        = string
   default     = "statuspulse"
 }
+
+variable "tailscale_auth_key" {
+  description = "Tailscale auth key"
+  type        = string
+  sensitive   = true
+}

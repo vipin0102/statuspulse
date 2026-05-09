@@ -70,7 +70,10 @@ resource "aws_instance" "statuspulse" {
   key_name               = aws_key_pair.terra-key.key_name
   vpc_security_group_ids = [aws_security_group.statuspulse_sg.id]
 
-  user_data = file("${path.module}/userdata.sh")
+  #user_data = file("${path.module}/userdata.sh")
+  user_data = templatefile("${path.module}/userdata.sh", {
+    tailscale_auth_key = var.tailscale_auth_key
+  })
 
   root_block_device {
     volume_size = 10
